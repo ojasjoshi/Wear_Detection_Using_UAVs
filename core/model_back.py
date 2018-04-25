@@ -24,7 +24,7 @@ batch_size = 32
 THRESHOLD = 0.5
 IS_CUDA = False
 
-def train(train_loader, model, criterion, optimizer, epoch):
+def train(train_loader, model, criterion, optimizer, epoch, logger):
     losses = AverageMeter()
     precision = AverageMeter()
     model.train()
@@ -59,7 +59,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # m1 = metric1(target_var, pred_class)
         # precision.update(m1, input.size(0))
         losses.update(loss.data[0], input.size(0))
-
+    
+    logger.log_scalar('epoch_loss',losses.avg,epoch)
     print('Epoch: {0}\t Average_Train_Loss: {1:.2f}'.format(epoch,losses.avg))
     """TODO: Add precision metric """
     # print('Epoch: {0}\t Train Precision: {1:.2f}'.format(epoch, precision.avg))

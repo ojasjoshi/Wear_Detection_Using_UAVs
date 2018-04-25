@@ -108,7 +108,7 @@ def process(crop_size=128,threshold=0.5):
 	originals, masks = get_data()
 	resized_originals = resize_original(originals)
 	# resized_wear = resized_only_wear(originals, masks, crop_size)		#cv2 format
-	wear_cut, no_wear_cut, preprocessed_cutouts = cutout(originals,masks,crop_size=128,threshold=threshold)
+	wear_cut, no_wear_cut, preprocessed_cutouts = cutout(originals,masks,crop_size=crop_size,threshold=threshold)
 	print("{} preprocessed cutouts formed".format(len(preprocessed_cutouts)))
 
 	return wear_cut, no_wear_cut, preprocessed_cutouts

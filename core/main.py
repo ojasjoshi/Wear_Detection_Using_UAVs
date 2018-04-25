@@ -1,7 +1,10 @@
 from model_back import *
+import sys
+sys.path.append("~/Desktop/iort/utils/")
+from logging import Logger
 # Variables
 
-BATCH_SIZE = 32
+BATCH_SIZE = 128
 NUM_WORKERS = 0
 LEARNING_RATE = 1e-4
 START_EPOCH = 0
@@ -11,7 +14,7 @@ SAVE_FREQUENCY = 1000
 TRAIN_PERCENT = 0.7
 
 DATA_DIR = "data"
-LOG_DIR = './log_files/'
+LOG_DIR = 'log_files/'
 SAVE_DIR = './simple_model/'
 RUN_NAME = 'simple_model'
 MODEL_NAME = 'model_'
@@ -21,6 +24,8 @@ def main():
 
     print('Loading TrainVal Data')
     """ TODO: Add train_val_location """
+    tensor_logs = Logger(LOG_DIR)
+    print('Logger object created')
     train_loader, val_loader = get_trainval_data(batch_size=BATCH_SIZE, train_percent=TRAIN_PERCENT)
 
     """ TODO: Add test data """
@@ -38,7 +43,7 @@ def main():
     print('Started training...')
 
     for epoch in range(START_EPOCH, START_EPOCH + NUM_EPOCHS):
-        train(train_loader, model, criterion, optimizer, epoch)
+        train(train_loader, model, criterion, optimizer, epoch, tensor_logs)
         if epoch % VAL_FREQUENCY == 0:
             validate(val_loader, model, epoch)
 
