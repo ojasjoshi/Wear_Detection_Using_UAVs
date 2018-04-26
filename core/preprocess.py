@@ -7,17 +7,17 @@ import random
 import pdb
 from copy import deepcopy
 
-NUM_DIR = 2
-DATA_DIR = '../data/'
+NUM_DIR = 4
 
-def get_data(num_dir=NUM_DIR):
+def get_data(num_dir=NUM_DIR, data_dir='../data/'):
 	# gives CV2 format
 	originals = []
 	masks = []
 	dirnames = np.arange(num_dir)
 	for dirname in dirnames:
-		dirname = DATA_DIR+str(dirname)
-		if os.path.isdir(DATA_DIR+str(dirname)):
+		dirname = data_dir+str(dirname)
+		# print(dirname)
+		if os.path.isdir(data_dir+str(dirname)):
 			for i, filename in enumerate(os.listdir(str(dirname))):
 				if(filename!='.DS_Store'):
 					img = cv2.imread(str(dirname)+'/'+str(filename),0)
@@ -70,13 +70,20 @@ def resize_original(originals,crop_size=500):
 	return preprocessed
 
 def cutout(raw_image, contour, crop_size=500, threshold = 0.2):
-	#takes cv2 format
+	#takes cv2 format # return preprocessed cutouts which is list of list of [cutouts,location_of_cutout]
 	preprocessed_cutouts = []	# each element is [img,corresponding_contour,wear_value]
 	wear_cut = []
 	no_wear = []
 	wear_count = 0				#total num of cutouts with high wear(wear value>0.9)
+	test_flag = 0
+	# case when test images
+	if(len(contour)==0):
+		contour = range(len(raw_image))
+		test_flag = 1
+
 	for (img,cnt) in zip(raw_image,contour):
 		cuts = []
+		cuts_imgdata = []
 		wid= img.shape[0]
 		hei = img.shape[1]
 		num_x = wid//crop_size
@@ -85,33 +92,43 @@ def cutout(raw_image, contour, crop_size=500, threshold = 0.2):
 		for x in range(num_x):
 			for y in range(num_y):		
 				cuts.append([x*crop_size,y*crop_size,(x+1)*crop_size,(y+1)*crop_size])
+				cuts_imgdata.append([img[x*crop_size:(x+1)*crop_size,y*crop_size:(y+1)*crop_size], [x*crop_size,y*crop_size,(x+1)*crop_size,(y+1)*crop_size]])
 
-		for cut_dims in cuts:
-			x1,y1,x2,y2 = cut_dims
-			normed_cnt_cutout = cnt[x1:x2,y1:y2]/255
-			wear_value = np.sum(normed_cnt_cutout)/(normed_cnt_cutout.shape[0]*normed_cnt_cutout.shape[1])
-			if(wear_value>threshold):
-				wear_count += 1
-			current_cutout = img[x1:x2,y1:y2]
-			preprocessed_cutouts.append([current_cutout,normed_cnt_cutout*255,wear_value])
-			if(threshold<wear_value):
-				# print("Wear with wear_value = ", wear_value)
-				wear_cut.append([current_cutout,normed_cnt_cutout*255,wear_value])
-			else:
-				# print("No wear with wear_value = ", wear_value)
-				no_wear.append([current_cutout,normed_cnt_cutout*255,wear_value])
+		preprocessed_cutouts.append(cuts_imgdata)
+
+		if(test_flag==0):
+			for cut_dims in cuts:
+				x1,y1,x2,y2 = cut_dims
+				normed_cnt_cutout = cnt[x1:x2,y1:y2]/255
+				wear_value = np.sum(normed_cnt_cutout)/(normed_cnt_cutout.shape[0]*normed_cnt_cutout.shape[1])
+				if(wear_value>threshold):
+					wear_count += 1
+				current_cutout = img[x1:x2,y1:y2]
+				# preprocessed_cutouts.append([current_cutout,normed_cnt_cutout*255,wear_value])
+				if(threshold<wear_value):
+					# print("Wear with wear_value = ", wear_value)
+					wear_cut.append([current_cutout,normed_cnt_cutout*255,wear_value])
+				else:
+					# print("No wear with wear_value = ", wear_value)
+					no_wear.append([current_cutout,normed_cnt_cutout*255,wear_value])
+
 	print(wear_count,"number of high wear cutouts were identified")
+
 	return wear_cut, no_wear, preprocessed_cutouts
 
-def process(crop_size=128,threshold=0.5):
+def process(crop_size=128,threshold=0.5,data_dir='../data/',num_dir=NUM_DIR):
 	print("Preprocessing data...")
-	originals, masks = get_data()
+	originals, masks = get_data(num_dir,data_dir)
 	resized_originals = resize_original(originals)
 	# resized_wear = resized_only_wear(originals, masks, crop_size)		#cv2 format
-	wear_cut, no_wear_cut, preprocessed_cutouts = cutout(originals,masks,crop_size=crop_size,threshold=threshold)
-	print("{} preprocessed cutouts formed".format(len(preprocessed_cutouts)))
+	wear_cut, no_wear_cut, preprocessed_cutouts = cutout(originals, masks,crop_size=crop_size,threshold=threshold)
+	print("{} images preprocessed, {} preprocessed cutouts formed".format(len(preprocessed_cutouts), (len(wear_cut)+len(no_wear_cut))))
+	
+	original_shape = []
+	for original in originals:
+		original_shape.append(original.shape)
 
-	return wear_cut, no_wear_cut, preprocessed_cutouts
+	return wear_cut, no_wear_cut, preprocessed_cutouts, original_shape
 
 """ TODO: Implement bias_ratio """
 def Imdb(wear_cut, no_wear_cut, bias_ratio=0.5):
@@ -172,6 +189,15 @@ def Imdb(wear_cut, no_wear_cut, bias_ratio=0.5):
 
 	print("Data loaded!")
 	return batch_images, batch_labels
+
+def process_test(img_shape, imagetest_img_data_locations, predictions):
+	# heat mapping for one image 
+	heat_map = np.zeros(shape=img_shape)	
+	for cut_locations, pred in zip(imagetest_img_data_locations, predictions):
+		x1,x2,y1,y2 = cut_locations
+		heat_map[x1:x2,y1:y2] = pred*255
+	
+	return heat_map
 
 """ TODO: Include RGB in get_data"""
 def main():

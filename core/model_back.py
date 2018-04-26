@@ -9,20 +9,21 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
-# import logger
 import datetime
-# from sklearn.metrics import accuracy_score
+import math
 import pickle
-import main
 import random
 from preprocess import process, Imdb
 import pdb
 
 # IM_SIZE = (128,128)
 IM_SIZE = (512,512)
-batch_size = 32
 THRESHOLD = 0.5
 IS_CUDA = False
+
+def metric(y_pred, y_true):
+    """ absolute error """
+    return 1-abs((y_pred.data.cpu().numpy()[0]-y_true.data.cpu().numpy()[0])[0])
 
 def train(train_loader, model, criterion, optimizer, epoch, logger):
     losses = AverageMeter()
@@ -33,41 +34,33 @@ def train(train_loader, model, criterion, optimizer, epoch, logger):
     for i_batch, (input, target) in enumerate(train_loader):
         input = input.type(torch.FloatTensor)
         target = target.type(torch.FloatTensor)
-        # pdb.set_trace()
         input_var = torch.autograd.Variable(input)
-        pred_class = model.forward(input_var)
-        
+
         if(IS_CUDA):
             target = target.cuda(async=True)
             input_var = input_var.cuda()
-            pred_class = pred_class.cuda()
+
+        y_pred = model.forward(input_var)
+
+        if(IS_CUDA):
+            y_pred = y_pred.cuda()
 
         target_var = torch.autograd.Variable(target)
+        # print(y_pred.cpu().data.numpy().shape, target_var.cpu().data.numpy().shape)
 
-        loss = criterion(pred_class, target_var)
-        
-        # if(IS_CUDA):
-            # print("Loss: ",loss.cpu().data.numpy())
-        # else:
-            # print("Loss: ",loss.data.numpy())
+        loss = criterion(y_pred, target_var)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        """ TODO: Add metric1 """
-        # m1 = metric1(target_var, pred_class)
-        # precision.update(m1, input.size(0))
+        m = metric(y_pred, target_var)
+        precision.update(m, input.size(0))
         losses.update(loss.data[0], input.size(0))
     
-    logger.log_scalar('epoch_loss',losses.avg,epoch)
-    print('Epoch: {0}\t Average_Train_Loss: {1:.2f}'.format(epoch,losses.avg))
-    """TODO: Add precision metric """
-    # print('Epoch: {0}\t Train Precision: {1:.2f}'.format(epoch, precision.avg))
-    # log.scalar_summary('train_precision', precision.avg, epoch)
-    # log.scalar_summary('loss', losses.avg, epoch)
+    logger.scalar_summary('epoch_loss',losses.avg,epoch)
+    print('Epoch: {0}\t, Average_Train_Loss: {1:.2f}, Average_Train_Precision: {1:.2f}'.format(epoch, losses.avg, precision.avg))
 
-""" TODO: Add validate """
 def validate(test_loader, model, epoch):
     # log.scalar_summary('tp', 0, 0)
     precision = AverageMeter()
@@ -79,20 +72,45 @@ def validate(test_loader, model, epoch):
 
         input_var = torch.autograd.Variable(input)
         if(IS_CUDA):
-            # target = target.type(torch.LongTensor).cuda(async=True)
             target = target.cuda(async=True)
             input_var = input_var.cuda()
         
         target_var = torch.autograd.Variable(target)
+        y_pred = model.forward(input_var)
 
-        pred_class = model.forward(input_var)
-        # m1 = metric1(target_var, pred_class)
-        # precision.update(m1, input.size(0))
+        m = metric(y_pred, target_var)
+        precision.update(m, input.size(0))
 
-    """ TODO: Add precision metric """
-    # print('Epoch: {0}\t Average_Train_Loss: {1:.2f}'.format(epoch,losses.avg))
-    # print('VAL\nEpoch: {0}\t Val   Precision: {1:.2f}\nVAL'.format(epoch, precision.avg))
-    # log.scalar_summary('val_precision', precision.avg, epoch)
+    print('VAL\nEpoch: {0}\t Val Precision: {1:.2f}\nVAL'.format(epoch, precision.avg))
+    logger.scalar_summary('val_precision', precision.avg, epoch)
+
+
+## called per image
+def process_test_input(input):
+    return torch.from_numpy(np.expand_dims(np.expand_dims(input,axis=0),axis=0))
+
+def test(test_image_data, model):
+    precision = AverageMeter()
+    model.eval()
+
+    predictions = []
+    """ TODO: Check input type requirement """
+    test_image_cutouts = [x[0] for x in test_image_data]
+
+    for i_batch, input in enumerate(test_image_cutouts):
+        input = process_test_input(input)
+        # print("INPUT IMAGE SHAPE:",input.shape)
+        input = input.type(torch.FloatTensor)
+
+        input_var = torch.autograd.Variable(input)
+        if(IS_CUDA):
+            input_var = input_var.cuda()
+
+        y_pred = model.forward(input_var)
+
+        predictions.append(y_pred.data.cpu().numpy()[0][0])
+
+    return predictions
 
 
 def adjust_learning_rate(optimizer, epoch, decay_rate=0.8, decay_epoch=100):
@@ -108,11 +126,15 @@ def Conv2d(in_filters, out_filters, kernel_size=(3,3),stride=(1,1),padding=(1,1)
 def Max2d(kernel_size=(2,2),stride=2):
     return nn.MaxPool2d(kernel_size=kernel_size,stride=stride)
 
+def get_test_data(data_dir='../test_data/', num_dir=1):
+    _ , _ , preprocessed_cutouts, original_img_shape = process(crop_size=IM_SIZE[0], data_dir=data_dir, num_dir=num_dir) # preprocessed cutouts contains list of list of cutouts per image
+
+    return preprocessed_cutouts, original_img_shape
 
 
-def get_trainval_data(batch_size, train_percent, num_workers=1):
+def get_trainval_data(batch_size, train_percent, num_workers=1, data_dir='../data/', num_dir=1):
         
-    wear_cut, no_wear_cut, _ = process(crop_size=IM_SIZE[0])
+    wear_cut, no_wear_cut, _ , _ = process(crop_size=IM_SIZE[0],data_dir=data_dir,num_dir=num_dir)
     images, labels = Imdb(wear_cut, no_wear_cut)
 
     train_idx = random.sample(range(0,len(images)),int(len(images)*train_percent))
@@ -140,7 +162,7 @@ class Model(nn.Module):
         self.imsize = im_size
         # self.linearDimension = im_size[0]*im_size[1]*64
         """ WARNING: CHECK THIS SHIT!!! """
-        self.linearDimension = int(im_size[0]*im_size[1]*0.25*0.25*0.25)
+        self.linearDimension = int(im_size[0]*im_size[1]*0.25)
         self.features = nn.Sequential(
             Conv2d(1,16),
             Max2d(),
